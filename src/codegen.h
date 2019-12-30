@@ -24,6 +24,9 @@ static AllocaInst *CreateEntryBlockAlloca(Function *function, const std::string 
     return tmpB.CreateAlloca(Type::getInt64Ty(Context), 0, VarName.c_str());
 }
 
+// mem2regを使うためのパスマネージャー
+static std::unique_ptr<legacy::FunctionPassManager> FPM;
+
 // https://llvm.org/doxygen/classllvm_1_1Value.html
 // llvm::Valueという、LLVM IRのオブジェクトでありFunctionやModuleなどを構成するクラスを使います
 Value *NumberAST::codegen() {
@@ -172,6 +175,8 @@ Function *FunctionAST::codegen() {
         // https://llvm.org/doxygen/Verifier_8h.html
         // 関数の検証
         verifyFunction(*function);
+
+        FPM->run(*function);
 
         return function;
     }
@@ -393,6 +398,19 @@ Value *BlockAST::codegen() {
 
 static std::string streamstr;
 static llvm::raw_string_ostream stream(streamstr);
+
+static void InitializeModuleAndPassManager() {
+    myModule = llvm::make_unique<Module>("my cool jit", Context);
+
+    FPM = llvm::make_unique<legacy::FunctionPassManager> (myModule.get());
+    FPM->add(createPromoteMemoryToRegisterPass());
+    FPM->add(createInstructionCombiningPass());
+    FPM->add(createReassociatePass());
+    FPM->add(createGVNPass());
+    FPM->add(createCFGSimplificationPass());
+    FPM->doInitialization();
+}
+
 static void HandleDefinition() {
     if (auto FnAST = ParseDefinition()) {
         if (auto *FnIR = FnAST->codegen()) {
@@ -433,7 +451,6 @@ static void HandleTopLevelExpression() {
 }
 
 static void MainLoop() {
-    myModule = llvm::make_unique<Module>("my cool jit", Context);
     while (true) {
         switch (CurTok) {
             case tok_eof:

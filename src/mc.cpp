@@ -34,6 +34,12 @@
 #include <utility>
 #include <vector>
 
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Utils.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
+
 using namespace llvm;
 using namespace llvm::sys;
 
@@ -77,6 +83,7 @@ int main(int argc, char *argv[]) {
 
     getNextToken();
 
+    InitializeModuleAndPassManager();
     MainLoop();
     
     write_output();
