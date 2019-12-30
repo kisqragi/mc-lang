@@ -56,7 +56,9 @@ namespace {
 
         public:
         VariableExprAST(const std::string &variableName) : variableName(variableName) {}
+
         Value *codegen() override;
+        const std::string &getName() const { return variableName; }
     };
 
     // CallExprAST - 関数呼び出しを表すクラス

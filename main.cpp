@@ -9,6 +9,7 @@ extern "C" {
     int test2();
     int testloop();
     int testbr(int);
+    int testvar(int);
 }
 
 int main() {
@@ -32,7 +33,7 @@ int main() {
     // extern test
     //test(10);
 
-    testloop();
+    //testloop();
 
     /*
     test_eq 
@@ -58,6 +59,8 @@ int main() {
     testbr(1);
     testbr(2);
     */
+
+    testvar(1);
 
     return 0;
 }

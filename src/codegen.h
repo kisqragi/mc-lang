@@ -84,6 +84,26 @@ Value *CallExprAST::codegen() {
 }
 
 Value *BinaryAST::codegen() {
+    
+    // 変数への代入の処理
+    if (Op == '=') {
+        VariableExprAST *LHSE = dynamic_cast<VariableExprAST *> (LHS.get());
+        if (!LHSE)
+            return LogErrorV("destinatin of '=' must be a variable");
+
+        Value *R = RHS->codegen();
+        if (!R)
+            return nullptr;
+
+        Value *Variable = NamedValues[LHSE->getName()];
+        if (!Variable)
+            return LogErrorV("Unknown variable name");
+
+        Builder.CreateStore(R, Variable);
+
+        return R;
+    }
+
     // 二項演算子の両方の引数をllvm::Valueにする。
     Value *L = LHS->codegen();
     Value *R = RHS->codegen();
