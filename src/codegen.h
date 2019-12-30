@@ -15,8 +15,14 @@ static IRBuilder<> Builder(Context);
 // このModuleはC++ Moduleとは何の関係もなく、LLVM IRを格納するトップレベルオブジェクトです。
 static std::unique_ptr<Module> myModule;
 // 変数名とllvm::Valueのマップを保持する
-static std::map<std::string, Value *> NamedValues;
+static std::map<std::string, AllocaInst *> NamedValues;
 static std::map<std::string, std::unique_ptr<PrototypeAST>> FunctionProtos;
+
+// ヘルパー関数
+static AllocaInst *CreateEntryBlockAlloca(Function *function, const std::string &VarName) {
+    IRBuilder<> tmpB(&function->getEntryBlock(), function->getEntryBlock().begin());
+    return tmpB.CreateAlloca(Type::getInt64Ty(Context), 0, VarName.c_str());
+}
 
 // https://llvm.org/doxygen/classllvm_1_1Value.html
 // llvm::Valueという、LLVM IRのオブジェクトでありFunctionやModuleなどを構成するクラスを使います
@@ -46,7 +52,7 @@ Value *VariableExprAST::codegen() {
     Value *V = NamedValues[variableName];
     if (!V)
         return LogErrorV("Unknown variable name");
-    return V;
+    return Builder.CreateLoad(V, variableName.c_str());
 }
 
 // TODO 2.5: 関数呼び出しのcodegenを実装してみよう
@@ -150,8 +156,13 @@ Function *FunctionAST::codegen() {
 
     // Record the function arguments in the NamedValues map.
     NamedValues.clear();
-    for (auto &Arg : function->args())
-        NamedValues[Arg.getName()] = &Arg;
+    for (auto &Arg : function->args()) {
+        AllocaInst *Alloca = CreateEntryBlockAlloca(function, Arg.getName());
+
+        Builder.CreateStore(&Arg, Alloca);
+
+        NamedValues[Arg.getName()] = Alloca;
+    }
 
     // 関数のbody(ExprASTから継承されたNumberASTかBinaryAST)をcodegenする
     if (Value *RetVal = body->codegen()) {
@@ -305,50 +316,49 @@ Value *TernaryExprAST::codegen() {
 }
 
 Value *ForExprAST::codegen() {
-    Value *StartVal = Start->codegen();
-    if (StartVal == 0) return 0;
+    Function *function = Builder.GetInsertBlock()->getParent();
 
-    Function *TheFunction = Builder.GetInsertBlock()->getParent();
-    BasicBlock *PreheaderBB = Builder.GetInsertBlock();
-    BasicBlock *LoopBB = BasicBlock::Create(Context, "loop", TheFunction);
+    AllocaInst *Alloca = CreateEntryBlockAlloca(function, VarName);
+
+    Value *StartVal = Start->codegen();
+    if (!StartVal) return nullptr;
+
+    Builder.CreateStore(StartVal, Alloca);
+
+    BasicBlock *LoopBB = BasicBlock::Create(Context, "loop", function);
 
     Builder.CreateBr(LoopBB);
 
     Builder.SetInsertPoint(LoopBB);
 
-    PHINode *Variable = Builder.CreatePHI(Type::getInt64Ty(Context), 2, VarName.c_str());
-    Variable->addIncoming(StartVal, PreheaderBB);
+    AllocaInst *OldVal = NamedValues[VarName];
+    NamedValues[VarName] = Alloca;
 
-    Value *OldVal = NamedValues[VarName];
-    NamedValues[VarName] = Variable;
+    if (!Body->codegen())
+        return nullptr;
 
-    if (Body->codegen() == 0)
-        return 0;
-
-    Value *StepVal;
+    Value *StepVal = nullptr;
     if (Step) {
         StepVal = Step->codegen();
-        if (StepVal == 0) return 0;
+        if (!StepVal) return nullptr;
     } else {
         StepVal = ConstantInt::get(Context, APInt(64, 1));
     }
 
-    Value *NextVar = Builder.CreateAdd(Variable, StepVal, "nextvar");
-
     Value *EndCond = End->codegen();
-    if (EndCond == 0) return EndCond;
+    if (!EndCond) return nullptr;
 
-    //EndCond = Builder.CreateFCmpONE(EndCond, ConstantInt::get(Context, APInt(64, 0)), "loopcond");
+    Value *CurVar = Builder.CreateLoad(Alloca, VarName.c_str());
+    Value *NextVar = Builder.CreateAdd(CurVar, StepVal, "nextvar");
+    Builder.CreateStore(NextVar, Alloca);
+
     EndCond = Builder.CreateICmpNE(EndCond, ConstantInt::get(Context, APInt(64, 0)), "loopcond");
 
-    BasicBlock *LoopEndBB = Builder.GetInsertBlock();
-    BasicBlock *AfterBB = BasicBlock::Create(Context, "afterloop", TheFunction);
+    BasicBlock *AfterBB = BasicBlock::Create(Context, "afterloop", function);
 
     Builder.CreateCondBr(EndCond, LoopBB, AfterBB);
 
     Builder.SetInsertPoint(AfterBB);
-
-    Variable->addIncoming(NextVar, LoopEndBB);
 
     if (OldVal)
         NamedValues[VarName] = OldVal;
