@@ -137,13 +137,24 @@ namespace {
     class BlockAST : public ExprAST {
         std::vector<std::unique_ptr<ExprAST>> body;
 
-        public:
+    public:
         BlockAST(std::vector<std::unique_ptr<ExprAST>> body) : body(std::move(body)) {}
 
         Value *codegen() override;
     };
 
+    class VarExprAST : public ExprAST {
+        std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;    
+        std::unique_ptr<ExprAST> Body;
 
+    public:
+        VarExprAST(std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames,
+            std::unique_ptr<ExprAST> Body)
+        :VarNames(std::move(VarNames)), Body(std::move(Body)) {}
+
+        Value *codegen() override;
+        
+    };
 
 } // end anonymous namespace
 
@@ -155,7 +166,7 @@ namespace {
 
 // CurTokは現在のトークン(tok_number, tok_eof, または')'や'+'などの場合そのascii)が
 // 格納されている。
-// getNextTokenにより次のトークンを読み、Curtokを更新する。
+// getNextTokenにより次のトークンを読み、CurTokを更新する。
 static int CurTok;
 //static int getNextToken() { return CurTok = lexer.gettok(); }
 static int getNextToken() { return CurTok = lexer.gettok(); }
@@ -376,7 +387,7 @@ static std::unique_ptr<ExprAST> ParseForExpr() {
 
     return llvm::make_unique<ForExprAST>(IdName, std::move(Start), std::move(End), std::move(Step), std::move(Body));
 }
-        
+
 static std::unique_ptr<ExprAST> ParseBlock() {
  
     std::vector<std::unique_ptr<ExprAST>> body;
@@ -391,7 +402,6 @@ static std::unique_ptr<ExprAST> ParseBlock() {
             if (CurTok == tok_eof) {
                 return LogError("expected '}'");
             }
-            getNextToken();
         } else {
             return nullptr;
         }
@@ -402,7 +412,48 @@ static std::unique_ptr<ExprAST> ParseBlock() {
             return nullptr;
         }
     }
+    getNextToken();
     return llvm::make_unique<BlockAST>(std::move(body));
+}
+
+static std::unique_ptr<ExprAST> ParseVarExpr() {
+    getNextToken();
+
+    std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;
+
+    if (CurTok != tok_identifier)
+        return LogError("expected identifier after var");
+
+    while (true) {
+        std::string Name = lexer.getIdentifier();
+        getNextToken();
+        
+        std::unique_ptr<ExprAST> Init = nullptr;
+
+        if (CurTok == '=') {
+            getNextToken();
+
+            Init = ParseExpression();
+            if (!Init) return nullptr;
+        }
+
+        VarNames.push_back(std::make_pair(Name, std::move(Init)));
+
+        if (CurTok != ',') break;
+        getNextToken();
+
+        if (CurTok != tok_identifier)
+            return LogError("expected identifier list after var");
+    }
+
+    if (CurTok != tok_in)
+        return LogError("expected 'in' keyword after var");
+    getNextToken();
+
+    auto Body = ParseExpression();
+    if (!Body) return nullptr;
+
+    return llvm::make_unique<VarExprAST> (std::move(VarNames), std::move(Body));
 }
 
 // ParsePrimary - NumberASTか括弧をパースする関数
@@ -424,6 +475,8 @@ static std::unique_ptr<ExprAST> ParsePrimary() {
             return ParseIfExpr();
         case tok_for:
             return ParseForExpr();
+        case tok_var:
+            return ParseVarExpr();
     }
 }
 

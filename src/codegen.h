@@ -403,11 +403,49 @@ Value *BlockAST::codegen() {
             RetVal = body[i]->codegen();
         }
 
-        // returnのIRを作る
         return RetVal;
     }
 
     return nullptr;
+}
+
+Value *VarExprAST::codegen() {
+    std::vector<AllocaInst *> OldBindings;
+
+    Function *function = Builder.GetInsertBlock()->getParent();
+
+    for (unsigned i = 0, e = VarNames.size(); i != e; i++) {
+        const std::string &VarName = VarNames[i].first;
+        ExprAST *Init = VarNames[i].second.get();
+
+        Value *InitVal;
+        if (Init) {
+            InitVal = Init->codegen();
+            if (!InitVal)
+                return nullptr;
+        } else {
+            InitVal = ConstantInt::get(Context, APInt(64, 0));
+        }
+
+        AllocaInst *Alloca = CreateEntryBlockAlloca(function, VarName);
+        Builder.CreateStore(InitVal, Alloca);
+
+        OldBindings.push_back(NamedValues[VarName]);
+
+        NamedValues[VarName] = Alloca;
+    }
+
+    Value *BodyVal = Body->codegen();
+    if (!BodyVal) return nullptr;
+
+/*
+    for (unsigned i = 0, e = VarNames.size(); i != e; i++) {
+        NamedValues[VarNames[i].first] = OldBindings[i];
+    }
+    */
+
+    return BodyVal;
+
 }
 
 //===----------------------------------------------------------------------===//
