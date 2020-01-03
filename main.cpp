@@ -7,6 +7,7 @@ extern "C" {
     int test(int);
     int test1();
     int test2();
+    int test9();
     int testloop();
     int testbr(int);
     int testvar(int);
@@ -60,7 +61,9 @@ int main() {
     testbr(2);
     */
 
-    testvar(1);
+    //testvar(1);
+
+    std::cout << "Call test9 : " << test9() << std::endl;
 
     return 0;
 }

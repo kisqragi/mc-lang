@@ -410,7 +410,6 @@ Value *BlockAST::codegen() {
 }
 
 Value *VarExprAST::codegen() {
-    std::vector<AllocaInst *> OldBindings;
 
     Function *function = Builder.GetInsertBlock()->getParent();
 
@@ -430,22 +429,13 @@ Value *VarExprAST::codegen() {
         AllocaInst *Alloca = CreateEntryBlockAlloca(function, VarName);
         Builder.CreateStore(InitVal, Alloca);
 
-        OldBindings.push_back(NamedValues[VarName]);
-
         NamedValues[VarName] = Alloca;
     }
 
     Value *BodyVal = Body->codegen();
     if (!BodyVal) return nullptr;
 
-/*
-    for (unsigned i = 0, e = VarNames.size(); i != e; i++) {
-        NamedValues[VarNames[i].first] = OldBindings[i];
-    }
-    */
-
     return BodyVal;
-
 }
 
 //===----------------------------------------------------------------------===//
