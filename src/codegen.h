@@ -15,8 +15,17 @@ static IRBuilder<> Builder(Context);
 // このModuleはC++ Moduleとは何の関係もなく、LLVM IRを格納するトップレベルオブジェクトです。
 static std::unique_ptr<Module> myModule;
 // 変数名とllvm::Valueのマップを保持する
-static std::map<std::string, Value *> NamedValues;
+static std::map<std::string, AllocaInst *> NamedValues;
 static std::map<std::string, std::unique_ptr<PrototypeAST>> FunctionProtos;
+
+// ヘルパー関数
+static AllocaInst *CreateEntryBlockAlloca(Function *function, const std::string &VarName) {
+    IRBuilder<> tmpB(&function->getEntryBlock(), function->getEntryBlock().begin());
+    return tmpB.CreateAlloca(Type::getInt64Ty(Context), 0, VarName.c_str());
+}
+
+// mem2regを使うためのパスマネージャー
+static std::unique_ptr<legacy::FunctionPassManager> FPM;
 
 // https://llvm.org/doxygen/classllvm_1_1Value.html
 // llvm::Valueという、LLVM IRのオブジェクトでありFunctionやModuleなどを構成するクラスを使います
@@ -46,7 +55,7 @@ Value *VariableExprAST::codegen() {
     Value *V = NamedValues[variableName];
     if (!V)
         return LogErrorV("Unknown variable name");
-    return V;
+    return Builder.CreateLoad(V, variableName.c_str());
 }
 
 // TODO 2.5: 関数呼び出しのcodegenを実装してみよう
@@ -75,6 +84,26 @@ Value *CallExprAST::codegen() {
 }
 
 Value *BinaryAST::codegen() {
+    
+    // 変数への代入の処理
+    if (Op == '=') {
+        VariableExprAST *LHSE = dynamic_cast<VariableExprAST *> (LHS.get());
+        if (!LHSE)
+            return LogErrorV("destinatin of '=' must be a variable");
+
+        Value *R = RHS->codegen();
+        if (!R)
+            return nullptr;
+
+        Value *Variable = NamedValues[LHSE->getName()];
+        if (!Variable)
+            return LogErrorV("Unknown variable name");
+
+        Builder.CreateStore(R, Variable);
+
+        return R;
+    }
+
     // 二項演算子の両方の引数をllvm::Valueにする。
     Value *L = LHS->codegen();
     Value *R = RHS->codegen();
@@ -150,8 +179,13 @@ Function *FunctionAST::codegen() {
 
     // Record the function arguments in the NamedValues map.
     NamedValues.clear();
-    for (auto &Arg : function->args())
-        NamedValues[Arg.getName()] = &Arg;
+    for (auto &Arg : function->args()) {
+        AllocaInst *Alloca = CreateEntryBlockAlloca(function, Arg.getName());
+
+        Builder.CreateStore(&Arg, Alloca);
+
+        NamedValues[Arg.getName()] = Alloca;
+    }
 
     // 関数のbody(ExprASTから継承されたNumberASTかBinaryAST)をcodegenする
     if (Value *RetVal = body->codegen()) {
@@ -161,6 +195,8 @@ Function *FunctionAST::codegen() {
         // https://llvm.org/doxygen/Verifier_8h.html
         // 関数の検証
         verifyFunction(*function);
+
+        FPM->run(*function);
 
         return function;
     }
@@ -305,50 +341,49 @@ Value *TernaryExprAST::codegen() {
 }
 
 Value *ForExprAST::codegen() {
-    Value *StartVal = Start->codegen();
-    if (StartVal == 0) return 0;
+    Function *function = Builder.GetInsertBlock()->getParent();
 
-    Function *TheFunction = Builder.GetInsertBlock()->getParent();
-    BasicBlock *PreheaderBB = Builder.GetInsertBlock();
-    BasicBlock *LoopBB = BasicBlock::Create(Context, "loop", TheFunction);
+    AllocaInst *Alloca = CreateEntryBlockAlloca(function, VarName);
+
+    Value *StartVal = Start->codegen();
+    if (!StartVal) return nullptr;
+
+    Builder.CreateStore(StartVal, Alloca);
+
+    BasicBlock *LoopBB = BasicBlock::Create(Context, "loop", function);
 
     Builder.CreateBr(LoopBB);
 
     Builder.SetInsertPoint(LoopBB);
 
-    PHINode *Variable = Builder.CreatePHI(Type::getInt64Ty(Context), 2, VarName.c_str());
-    Variable->addIncoming(StartVal, PreheaderBB);
+    AllocaInst *OldVal = NamedValues[VarName];
+    NamedValues[VarName] = Alloca;
 
-    Value *OldVal = NamedValues[VarName];
-    NamedValues[VarName] = Variable;
+    if (!Body->codegen())
+        return nullptr;
 
-    if (Body->codegen() == 0)
-        return 0;
-
-    Value *StepVal;
+    Value *StepVal = nullptr;
     if (Step) {
         StepVal = Step->codegen();
-        if (StepVal == 0) return 0;
+        if (!StepVal) return nullptr;
     } else {
         StepVal = ConstantInt::get(Context, APInt(64, 1));
     }
 
-    Value *NextVar = Builder.CreateAdd(Variable, StepVal, "nextvar");
-
     Value *EndCond = End->codegen();
-    if (EndCond == 0) return EndCond;
+    if (!EndCond) return nullptr;
 
-    //EndCond = Builder.CreateFCmpONE(EndCond, ConstantInt::get(Context, APInt(64, 0)), "loopcond");
+    Value *CurVar = Builder.CreateLoad(Alloca, VarName.c_str());
+    Value *NextVar = Builder.CreateAdd(CurVar, StepVal, "nextvar");
+    Builder.CreateStore(NextVar, Alloca);
+
     EndCond = Builder.CreateICmpNE(EndCond, ConstantInt::get(Context, APInt(64, 0)), "loopcond");
 
-    BasicBlock *LoopEndBB = Builder.GetInsertBlock();
-    BasicBlock *AfterBB = BasicBlock::Create(Context, "afterloop", TheFunction);
+    BasicBlock *AfterBB = BasicBlock::Create(Context, "afterloop", function);
 
     Builder.CreateCondBr(EndCond, LoopBB, AfterBB);
 
     Builder.SetInsertPoint(AfterBB);
-
-    Variable->addIncoming(NextVar, LoopEndBB);
 
     if (OldVal)
         NamedValues[VarName] = OldVal;
@@ -368,11 +403,39 @@ Value *BlockAST::codegen() {
             RetVal = body[i]->codegen();
         }
 
-        // returnのIRを作る
         return RetVal;
     }
 
     return nullptr;
+}
+
+Value *VarExprAST::codegen() {
+
+    Function *function = Builder.GetInsertBlock()->getParent();
+
+    for (unsigned i = 0, e = VarNames.size(); i != e; i++) {
+        const std::string &VarName = VarNames[i].first;
+        ExprAST *Init = VarNames[i].second.get();
+
+        Value *InitVal;
+        if (Init) {
+            InitVal = Init->codegen();
+            if (!InitVal)
+                return nullptr;
+        } else {
+            InitVal = ConstantInt::get(Context, APInt(64, 0));
+        }
+
+        AllocaInst *Alloca = CreateEntryBlockAlloca(function, VarName);
+        Builder.CreateStore(InitVal, Alloca);
+
+        NamedValues[VarName] = Alloca;
+    }
+
+    Value *BodyVal = Body->codegen();
+    if (!BodyVal) return nullptr;
+
+    return BodyVal;
 }
 
 //===----------------------------------------------------------------------===//
@@ -383,6 +446,19 @@ Value *BlockAST::codegen() {
 
 static std::string streamstr;
 static llvm::raw_string_ostream stream(streamstr);
+
+static void InitializeModuleAndPassManager() {
+    myModule = llvm::make_unique<Module>("my cool jit", Context);
+
+    FPM = llvm::make_unique<legacy::FunctionPassManager> (myModule.get());
+    FPM->add(createPromoteMemoryToRegisterPass());
+    FPM->add(createInstructionCombiningPass());
+    FPM->add(createReassociatePass());
+    FPM->add(createGVNPass());
+    FPM->add(createCFGSimplificationPass());
+    FPM->doInitialization();
+}
+
 static void HandleDefinition() {
     if (auto FnAST = ParseDefinition()) {
         if (auto *FnIR = FnAST->codegen()) {
@@ -423,7 +499,6 @@ static void HandleTopLevelExpression() {
 }
 
 static void MainLoop() {
-    myModule = llvm::make_unique<Module>("my cool jit", Context);
     while (true) {
         switch (CurTok) {
             case tok_eof:

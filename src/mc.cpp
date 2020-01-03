@@ -34,6 +34,12 @@
 #include <utility>
 #include <vector>
 
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Utils.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
+
 using namespace llvm;
 using namespace llvm::sys;
 
@@ -66,17 +72,20 @@ int main(int argc, char *argv[]) {
     // 数字が低いほど結合度が低い
     // TODO 3.1: '<'を実装してみよう
     // BinopPrecedenceに'<'を登録して下さい。
-    BinopPrecedence[tok_eq] = 5;
+
+    BinopPrecedence['='] = 5;
     BinopPrecedence['<'] = 10;
     BinopPrecedence['>'] = 10;
     BinopPrecedence[tok_sle] = 10;
     BinopPrecedence[tok_sge] = 10;
+    BinopPrecedence[tok_eq] = 10;
     BinopPrecedence['+'] = 20;
     BinopPrecedence['-'] = 20;
     BinopPrecedence['*'] = 40;
 
     getNextToken();
 
+    InitializeModuleAndPassManager();
     MainLoop();
     
     write_output();
