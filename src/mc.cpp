@@ -12,6 +12,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/raw_ostream.h"
@@ -33,7 +34,6 @@
 #include <system_error>
 #include <utility>
 #include <vector>
-
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
@@ -86,6 +86,7 @@ int main(int argc, char *argv[]) {
     getNextToken();
 
     InitializeModuleAndPassManager();
+
     MainLoop();
     
     write_output();

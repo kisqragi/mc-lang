@@ -459,6 +459,35 @@ static void InitializeModuleAndPassManager() {
     FPM->doInitialization();
 }
 
+static void GVarDeclaration() {
+    std::pair<std::string, std::unique_ptr<ExprAST>> body = ParseGVarExpr();
+    auto name = body.first.c_str();
+    std::cout << name << std::endl;
+
+    Value *Init;
+    if (body.second != nullptr) {
+        Init = body.second->codegen();
+    } else {
+        Init = nullptr;
+    }
+
+    llvm::IntegerType *IntegerTy = llvm::IntegerType::get(Context, 64);
+    auto gvar = new llvm::GlobalVariable(
+        *myModule,
+        IntegerTy,
+        true,
+        llvm::GlobalValue::InternalLinkage,
+        //(Init ? Init : 0),
+        0,
+        name
+        //"gvar"
+    );
+    auto V = llvm::ConstantInt::get(Context, APInt(64, 65, true));
+    gvar->setInitializer(V);
+
+    myModule->print(llvm::outs(), nullptr);
+}
+
 static void HandleDefinition() {
     if (auto FnAST = ParseDefinition()) {
         if (auto *FnIR = FnAST->codegen()) {
@@ -513,6 +542,9 @@ static void MainLoop() {
                 break;
             case tok_extern:
                 HandleExtern();
+                break;
+            case tok_var:
+                GVarDeclaration();
                 break;
             default:
                 HandleTopLevelExpression();
