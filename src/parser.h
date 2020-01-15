@@ -456,34 +456,6 @@ static std::unique_ptr<ExprAST> ParseVarExpr() {
     return llvm::make_unique<VarExprAST> (std::move(VarNames), std::move(Body));
 }
 
-/*
-static std::unique_ptr<ExprAST> ParseGVarExpr() {
-    getNextToken();
-
-    if (CurTok != tok_identifier)
-        return LogError("expected identifier after var");
-
-    std::string Name = lexer.getIdentifier();
-    getNextToken();
-    
-    std::unique_ptr<ExprAST> Init = nullptr;
-
-    if (CurTok == '=') {
-        getNextToken();
-
-        Init = ParseExpression();
-        if (!Init) return nullptr;
-    }
-
-    if (CurTok != tok_in)
-        return LogError("expected 'in' keyword after var");
-
-    getNextToken();
-
-    return llvm::make_unique<GVarExprAST> (Name, std::move(Init));
-}
-*/
-
 static std::pair<std::string, std::unique_ptr<ExprAST>> ParseGVarExpr() {
     getNextToken();
 

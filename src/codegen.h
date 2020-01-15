@@ -462,13 +462,13 @@ static void InitializeModuleAndPassManager() {
 static void GVarDeclaration() {
     std::pair<std::string, std::unique_ptr<ExprAST>> body = ParseGVarExpr();
     auto name = body.first.c_str();
-    std::cout << name << std::endl;
 
-    Value *Init;
+    Constant *Init;
     if (body.second != nullptr) {
-        Init = body.second->codegen();
+        auto Val = body.second->codegen();
+        Init = (Constant *) Val;
     } else {
-        Init = nullptr;
+        Init = ConstantInt::get(Context, APInt(64, 0, true));
     }
 
     llvm::IntegerType *IntegerTy = llvm::IntegerType::get(Context, 64);
@@ -477,13 +477,12 @@ static void GVarDeclaration() {
         IntegerTy,
         true,
         llvm::GlobalValue::InternalLinkage,
-        //(Init ? Init : 0),
-        0,
+        (Init ? Init : 0),
+        //0,
         name
-        //"gvar"
     );
-    auto V = llvm::ConstantInt::get(Context, APInt(64, 65, true));
-    gvar->setInitializer(V);
+    //auto V = llvm::ConstantInt::get(Context, APInt(64, 65, true));
+    gvar->setInitializer(Init);
 
     myModule->print(llvm::outs(), nullptr);
 }
