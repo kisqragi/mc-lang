@@ -11,6 +11,7 @@ extern "C" {
     int testloop();
     int testbr(int);
     int testvar(int);
+    int testGVar();
 }
 
 int main() {
@@ -63,7 +64,9 @@ int main() {
 
     //testvar(1);
 
-    std::cout << "Call test9 : " << test9() << std::endl;
+    //std::cout << "Call test9 : " << test9() << std::endl;
+
+    std::cout << "Call testGVar : " << testGVar() << std::endl;
 
     return 0;
 }

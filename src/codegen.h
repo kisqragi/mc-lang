@@ -16,12 +16,24 @@ static IRBuilder<> Builder(Context);
 static std::unique_ptr<Module> myModule;
 // 変数名とllvm::Valueのマップを保持する
 static std::map<std::string, AllocaInst *> NamedValues;
+// ローバル変数の名前と値を保持する
+static std::map<std::string, GlobalVariable *> GlobalNamedValues;
 static std::map<std::string, std::unique_ptr<PrototypeAST>> FunctionProtos;
 
 // ヘルパー関数
 static AllocaInst *CreateEntryBlockAlloca(Function *function, const std::string &VarName) {
     IRBuilder<> tmpB(&function->getEntryBlock(), function->getEntryBlock().begin());
     return tmpB.CreateAlloca(Type::getInt64Ty(Context), 0, VarName.c_str());
+}
+
+static Value *getNamedValues(std::string name) {
+    if (NamedValues.count(name)) {
+        return NamedValues[name];
+    }
+    if (GlobalNamedValues.count(name)) {
+        return GlobalNamedValues[name];
+    }
+    return nullptr;
 }
 
 // mem2regを使うためのパスマネージャー
@@ -52,7 +64,8 @@ Value *LogErrorV(const char *str) {
 Value *VariableExprAST::codegen() {
     // NamedValuesの中にVariableExprAST::NameとマッチするValueがあるかチェックし、
     // あったらそのValueを返す。
-    Value *V = NamedValues[variableName];
+    //Value *V = NamedValues[variableName];
+    Value *V = getNamedValues(variableName); 
     if (!V)
         return LogErrorV("Unknown variable name");
     return Builder.CreateLoad(V, variableName.c_str());
@@ -95,7 +108,8 @@ Value *BinaryAST::codegen() {
         if (!R)
             return nullptr;
 
-        Value *Variable = NamedValues[LHSE->getName()];
+        //Value *Variable = NamedValues[LHSE->getName()];
+        Value *Variable = getNamedValues(LHSE->getName());
         if (!Variable)
             return LogErrorV("Unknown variable name");
 
@@ -471,15 +485,16 @@ static void GVarDeclaration() {
         Init = ConstantInt::get(Context, APInt(64, 0, true));
     }
 
-    llvm::IntegerType *IntegerTy = llvm::IntegerType::get(Context, 64);
-    auto gvar = new llvm::GlobalVariable(
+    IntegerType *IntegerTy = IntegerType::get(Context, 64);
+    auto gvar = new GlobalVariable(
         *myModule,
         IntegerTy,
-        true,
-        llvm::GlobalValue::InternalLinkage,
+        false,
+        GlobalValue::InternalLinkage,
         Init,
         name
     );
+    GlobalNamedValues[name] = gvar;
 }
 
 static void HandleDefinition() {
