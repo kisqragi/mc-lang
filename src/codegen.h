@@ -477,14 +477,9 @@ static void GVarDeclaration() {
         IntegerTy,
         true,
         llvm::GlobalValue::InternalLinkage,
-        (Init ? Init : 0),
-        //0,
+        Init,
         name
     );
-    //auto V = llvm::ConstantInt::get(Context, APInt(64, 65, true));
-    gvar->setInitializer(Init);
-
-    myModule->print(llvm::outs(), nullptr);
 }
 
 static void HandleDefinition() {
