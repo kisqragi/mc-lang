@@ -89,6 +89,7 @@ int main(int argc, char *argv[]) {
 
     MainLoop();
     
+    myModule->print(llvm::outs(), nullptr);
     write_output();
 
     return 0;

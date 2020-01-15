@@ -484,9 +484,12 @@ static void GVarDeclaration() {
 
 static void HandleDefinition() {
     if (auto FnAST = ParseDefinition()) {
+        /*
         if (auto *FnIR = FnAST->codegen()) {
             FnIR->print(stream);
         }
+        */
+        auto *FnIR = FnAST->codegen();
     } else {
         getNextToken();
     }
